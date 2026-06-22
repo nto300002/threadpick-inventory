@@ -1,0 +1,10 @@
+node_modules
+.next
+.wrangler
+.vercel
+coverage
+dist
+.env
+.env*.local
+*.tsbuildinfo
+npm-debug.log*
