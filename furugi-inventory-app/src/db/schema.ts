@@ -22,6 +22,25 @@ export const users = sqliteTable(
   (table) => [uniqueIndex("idx_users_email").on(table.email)],
 );
 
+export const sessions = sqliteTable(
+  "sessions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    revokedAt: text("revoked_at"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("idx_sessions_token_hash").on(table.tokenHash),
+    index("idx_sessions_user_id").on(table.userId),
+    index("idx_sessions_expires_at").on(table.expiresAt),
+  ],
+);
+
 export const products = sqliteTable(
   "products",
   {
@@ -107,5 +126,16 @@ export const productRelations = relations(products, ({ one }) => ({
   sale: one(sales, {
     fields: [products.id],
     references: [sales.productId],
+  }),
+}));
+
+export const userRelations = relations(users, ({ many }) => ({
+  sessions: many(sessions),
+}));
+
+export const sessionRelations = relations(sessions, ({ one }) => ({
+  user: one(users, {
+    fields: [sessions.userId],
+    references: [users.id],
   }),
 }));
