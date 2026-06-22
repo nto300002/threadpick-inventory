@@ -10,7 +10,10 @@ export function StatusBoard({ statuses }: StatusBoardProps) {
     <section className={styles.board} aria-label="商品ステータス">
       {statuses.map((status) => (
         <article className={styles.card} key={status.value}>
-          <p className={styles.label}>{status.label}</p>
+          <div className={styles.cardTop}>
+            <p className={styles.label}>{status.label}</p>
+            <span aria-hidden="true" />
+          </div>
           <p className={styles.description}>{status.description}</p>
         </article>
       ))}

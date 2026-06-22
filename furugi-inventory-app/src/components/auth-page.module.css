@@ -1,0 +1,167 @@
+.page {
+  width: min(960px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 32px 0 56px;
+}
+
+.panel {
+  padding: 28px 30px 30px;
+  background: linear-gradient(180deg, #f4efff 0%, #ffffff 100%);
+  border-top: 8px solid #8f6bdc;
+  border-right: 1px solid #e7ddfb;
+  border-bottom: 1px solid #e7ddfb;
+  border-left: 1px solid #e7ddfb;
+  border-radius: 8px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.kicker,
+.sectionLabel {
+  margin: 0;
+  color: #6d52a8;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.header h1,
+.authCard h2 {
+  margin: 6px 0 0;
+  color: #242029;
+  letter-spacing: 0;
+}
+
+.header h1 {
+  font-size: clamp(28px, 4vw, 42px);
+  line-height: 1.15;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 14px;
+  color: #5b438f;
+  text-decoration: none;
+  background: #ffffff;
+  border: 1px solid #dfd3f4;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.authCard {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  width: min(100%, 520px);
+  margin: 24px auto 0;
+  padding: 22px;
+  background: #ffffff;
+  border: 1px solid #e8e2f4;
+  border-radius: 8px;
+}
+
+.authCard label {
+  display: grid;
+  gap: 8px;
+  color: #4c4654;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.authCard input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  color: #26212d;
+  background: #fbfafc;
+  border: 1px solid #d9d0ea;
+  border-radius: 6px;
+  font: inherit;
+  outline: none;
+}
+
+.authCard input:focus {
+  border-color: #7654c8;
+  box-shadow: 0 0 0 3px #ede6fb;
+}
+
+.passwordHint {
+  margin: -4px 0 0;
+  color: #6b6573;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.errorList {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 12px 10px 28px;
+  color: #8b3d50;
+  background: #fff7f8;
+  border: 1px solid #f4c5ce;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.authCard button {
+  justify-self: start;
+  min-width: 128px;
+  min-height: 42px;
+  padding: 0 18px;
+  color: #ffffff;
+  background: #7654c8;
+  border: 0;
+  border-radius: 6px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.sessionMessage {
+  margin: 0;
+  color: #5b438f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.switchLink {
+  display: flex;
+  gap: 10px;
+  margin: 0;
+  color: #5a5265;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.switchLink a {
+  color: #5b438f;
+  font-weight: 800;
+}
+
+@media (max-width: 760px) {
+  .page {
+    width: min(100% - 24px, 960px);
+    padding-top: 16px;
+  }
+
+  .panel {
+    padding: 22px 18px;
+  }
+
+  .backLink,
+  .authCard button {
+    width: 100%;
+  }
+}
