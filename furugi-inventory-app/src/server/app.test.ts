@@ -4,7 +4,13 @@ import { MemoryInventoryStore } from "./memory-store";
 
 function setup() {
   const store = new MemoryInventoryStore();
-  const app = createApp({ store });
+  const app = createApp({
+    auth: {
+      iterations: 1_000,
+      pepper: "test-pepper",
+    },
+    store,
+  });
   return { app, store };
 }
 
@@ -46,7 +52,7 @@ describe("Hono API", () => {
   });
 
   it("signs up the first user as admin and creates an authenticated session", async () => {
-    const { app } = setup();
+    const { app, store } = setup();
 
     const signup = await app.request("/api/auth/signup", {
       method: "POST",
@@ -61,6 +67,9 @@ describe("Hono API", () => {
     await expect(json<{ user: { role: string; passwordHash?: string } }>(signup)).resolves.toMatchObject({
       user: { role: "admin" },
     });
+    const storedUser = await store.findUserByEmail("owner@example.com");
+    expect(storedUser?.passwordHash).toMatch(/^pbkdf2-sha256\$i=1000\$/);
+    expect(storedUser?.passwordHash).not.toContain("Password!1");
 
     const login = await app.request("/api/auth/login", {
       method: "POST",
@@ -69,6 +78,10 @@ describe("Hono API", () => {
     });
     expect(login.status).toBe(200);
     expect(login.headers.get("set-cookie")).toContain("threadpick_session=");
+    expect(login.headers.get("set-cookie")).toContain("HttpOnly");
+    expect(login.headers.get("set-cookie")).toContain("Secure");
+    expect(login.headers.get("set-cookie")).toContain("SameSite=Lax");
+    expect(login.headers.get("set-cookie")).toContain("Max-Age=28800");
 
     const me = await app.request("/api/auth/me", {
       headers: { cookie: login.headers.get("set-cookie") ?? "" },
@@ -76,6 +89,47 @@ describe("Hono API", () => {
     expect(me.status).toBe(200);
     await expect(json<{ user: { email: string; passwordHash?: string } }>(me)).resolves.toMatchObject({
       user: { email: "owner@example.com" },
+    });
+  });
+
+  it("enforces password complexity and generic login failures", async () => {
+    const { app } = setup();
+
+    const weakSignup = await app.request("/api/auth/signup", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Owner",
+        email: "owner@example.com",
+        password: "password",
+      }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(weakSignup.status).toBe(400);
+    await expect(json<{ error: string; issues: Array<{ message: string }> }>(weakSignup)).resolves.toMatchObject({
+      error: "invalid_request",
+      issues: expect.arrayContaining([
+        expect.objectContaining({ message: "password must include an uppercase letter" }),
+        expect.objectContaining({ message: "password must include a symbol" }),
+      ]),
+    });
+
+    await app.request("/api/auth/signup", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Owner",
+        email: "owner@example.com",
+        password: "Password!1",
+      }),
+      headers: { "content-type": "application/json" },
+    });
+    const badLogin = await app.request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: "missing@example.com", password: "wrong" }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(badLogin.status).toBe(401);
+    await expect(json<{ error: string }>(badLogin)).resolves.toEqual({
+      error: "invalid_credentials",
     });
   });
 

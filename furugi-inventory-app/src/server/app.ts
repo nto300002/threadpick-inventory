@@ -1,12 +1,18 @@
 import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";
+import {
+  hashPassword,
+  type PasswordHashConfig,
+  verifyPassword,
+} from "./auth/password";
 import { D1InventoryStore } from "./d1-store";
 import type { InventoryStore, ProductStatus, PublicUser, User } from "./store";
 import { toPublicUser } from "./store";
 
 type Bindings = {
   DB: D1Database;
+  AUTH_PEPPER?: string;
   PRODUCT_IMAGES: R2Bucket;
 };
 
@@ -17,7 +23,13 @@ type Variables = {
 };
 
 const sessionCookie = "threadpick_session";
-const sessionDays = 7;
+const sessionHours = 8;
+const passwordSchema = z
+  .string()
+  .min(8, "password must be at least 8 characters")
+  .regex(/[A-Z]/, "password must include an uppercase letter")
+  .regex(/[a-z]/, "password must include a lowercase letter")
+  .regex(/[^A-Za-z0-9]/, "password must include a symbol");
 
 const emailSchema = z
   .string()
@@ -59,16 +71,6 @@ function randomToken() {
   return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
-async function hashPassword(password: string) {
-  const salt = randomToken();
-  return `sha256:${salt}:${await sha256(`${salt}:${password}`)}`;
-}
-
-async function verifyPassword(password: string, passwordHash: string) {
-  const [algorithm, salt, hash] = passwordHash.split(":");
-  return algorithm === "sha256" && hash === (await sha256(`${salt}:${password}`));
-}
-
 function parseId(value: string) {
   const id = Number(value);
   return Number.isInteger(id) && id > 0 ? id : null;
@@ -87,7 +89,7 @@ function publicUserResponse(user: User): PublicUser {
   return toPublicUser(user);
 }
 
-export function createApp(options: { store?: InventoryStore } = {}) {
+export function createApp(options: { auth?: PasswordHashConfig; store?: InventoryStore } = {}) {
   const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
   app.use("*", async (c, next) => {
@@ -125,7 +127,7 @@ export function createApp(options: { store?: InventoryStore } = {}) {
       .object({
         name: z.string().min(1),
         email: emailSchema,
-        password: z.string().min(8),
+        password: passwordSchema,
         role: roleSchema.default("member"),
       })
       .safeParse(await c.req.json());
@@ -139,7 +141,10 @@ export function createApp(options: { store?: InventoryStore } = {}) {
     const user = await store.createUser({
       name: body.data.name,
       email: body.data.email,
-      passwordHash: await hashPassword(body.data.password),
+      passwordHash: await hashPassword(body.data.password, {
+        pepper: c.env?.AUTH_PEPPER,
+        ...options.auth,
+      }),
       role,
     });
     return c.json({ user: publicUserResponse(user) }, 201);
@@ -150,19 +155,25 @@ export function createApp(options: { store?: InventoryStore } = {}) {
     if (!body.success) return c.json({ error: "invalid_request" }, 400);
     const store = c.get("store");
     const user = await store.findUserByEmail(body.data.email);
-    if (!user || !(await verifyPassword(body.data.password, user.passwordHash))) {
+    if (
+      !user ||
+      !(await verifyPassword(body.data.password, user.passwordHash, {
+        pepper: c.env?.AUTH_PEPPER,
+        ...options.auth,
+      }))
+    ) {
       return c.json({ error: "invalid_credentials" }, 401);
     }
     const token = randomToken();
     const tokenHash = await sha256(token);
-    const expiresAt = new Date(Date.now() + sessionDays * 24 * 60 * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + sessionHours * 60 * 60 * 1000).toISOString();
     await store.createSession({ userId: user.id, tokenHash, expiresAt });
     setCookie(c, sessionCookie, token, {
       httpOnly: true,
       secure: true,
       sameSite: "Lax",
       path: "/",
-      maxAge: sessionDays * 24 * 60 * 60,
+      maxAge: sessionHours * 60 * 60,
     });
     return c.json({ user: publicUserResponse(user) });
   });
@@ -300,13 +311,16 @@ export function createApp(options: { store?: InventoryStore } = {}) {
   app.post("/api/users", async (c) => {
     const forbidden = requireAdmin(c.get("currentUser"));
     if (forbidden) return c.json(forbidden, forbidden.error === "forbidden" ? 403 : 401);
-    const body = z.object({ name: z.string().min(1), email: emailSchema, password: z.string().min(8), role: roleSchema }).safeParse(await c.req.json());
+    const body = z.object({ name: z.string().min(1), email: emailSchema, password: passwordSchema, role: roleSchema }).safeParse(await c.req.json());
     if (!body.success) return c.json({ error: "invalid_request", issues: body.error.issues }, 400);
     const user = await c.get("store").createUser({
       name: body.data.name,
       email: body.data.email,
       role: body.data.role,
-      passwordHash: await hashPassword(body.data.password),
+      passwordHash: await hashPassword(body.data.password, {
+        pepper: c.env?.AUTH_PEPPER,
+        ...options.auth,
+      }),
     });
     return c.json({ user: publicUserResponse(user) }, 201);
   });
