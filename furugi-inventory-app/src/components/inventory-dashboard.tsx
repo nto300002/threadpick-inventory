@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import styles from "./inventory-dashboard.module.css";
+import { AuthToast, queueAuthToast, useQueuedAuthToast } from "./auth-toast";
 
 type ProductStatus = "登録済み" | "売却済み";
 type ProductFilter = "all" | ProductStatus;
@@ -70,6 +72,8 @@ const initialProducts: Product[] = [
 ];
 
 export function InventoryDashboard() {
+  const router = useRouter();
+  const [toast, setToast] = useQueuedAuthToast();
   const [products, setProducts] = useState(initialProducts);
   const [expandedProduct, setExpandedProduct] = useState(initialProducts[0].number);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
@@ -121,13 +125,30 @@ export function InventoryDashboard() {
     setDeleteTarget(null);
   }
 
-  function logout() {
-    window.localStorage.removeItem("threadpick-session");
-    window.location.href = "/auth/login";
+  async function logout() {
+    const response = await fetch("/api/auth/logout", {
+      credentials: "include",
+      method: "POST",
+    });
+
+    if (!response.ok) {
+      setToast({
+        intent: "error",
+        message: "ログアウトに失敗しました。",
+      });
+      return;
+    }
+
+    queueAuthToast({
+      intent: "success",
+      message: "ログアウトに成功しました。",
+    });
+    router.push("/auth/login");
   }
 
   return (
     <main className={styles.page}>
+      <AuthToast toast={toast} />
       <header className={styles.header}>
         <div>
           <p className={styles.kicker}>Threadpick Inventory</p>

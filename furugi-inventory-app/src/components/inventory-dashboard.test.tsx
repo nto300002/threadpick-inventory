@@ -1,9 +1,37 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InventoryDashboard } from "./inventory-dashboard";
 
+const pushMock = vi.fn();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: pushMock,
+  }),
+}));
+
 describe("InventoryDashboard", () => {
+  beforeEach(() => {
+    window.sessionStorage.clear();
+    pushMock.mockReset();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ ok: true }), {
+            headers: { "content-type": "application/json" },
+            status: 200,
+          }),
+        ),
+      ),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("renders the primary inventory workflow", () => {
     render(<InventoryDashboard />);
 
@@ -156,5 +184,37 @@ describe("InventoryDashboard", () => {
     expect(screen.getByTestId("product-card-TP-1042")).toBeInTheDocument();
     expect(screen.getByTestId("product-card-TP-1038")).toBeInTheDocument();
     expect(screen.queryByTestId("product-card-TP-1029")).not.toBeInTheDocument();
+  });
+
+  it("logs out through the auth API and queues a success popup", async () => {
+    const user = userEvent.setup();
+    render(<InventoryDashboard />);
+
+    await user.click(screen.getByRole("button", { name: "ログアウト" }));
+
+    expect(fetch).toHaveBeenCalledWith("/api/auth/logout", {
+      credentials: "include",
+      method: "POST",
+    });
+    expect(window.sessionStorage.getItem("threadpick-auth-toast")).toContain(
+      "ログアウトに成功しました。",
+    );
+    expect(pushMock).toHaveBeenCalledWith("/auth/login");
+  });
+
+  it("shows a failure popup when logout fails", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "failed" }), {
+        headers: { "content-type": "application/json" },
+        status: 500,
+      }),
+    );
+    const user = userEvent.setup();
+    render(<InventoryDashboard />);
+
+    await user.click(screen.getByRole("button", { name: "ログアウト" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("ログアウトに失敗しました。");
+    expect(pushMock).not.toHaveBeenCalled();
   });
 });
