@@ -6,7 +6,13 @@ type AuthGlobal = typeof globalThis & {
 };
 
 const authGlobal = globalThis as AuthGlobal;
-const store = authGlobal.threadpickAuthStore ?? new MemoryInventoryStore();
+const existingStore = authGlobal.threadpickAuthStore;
+const store =
+  existingStore &&
+  "purgeExpiredDeletedProducts" in existingStore &&
+  "hardDeleteProduct" in existingStore
+    ? existingStore
+    : new MemoryInventoryStore();
 
 authGlobal.threadpickAuthStore = store;
 

@@ -71,7 +71,7 @@ export const products = sqliteTable(
   },
   (table) => [
     index("idx_products_status").on(table.status),
-    index("idx_products_management_number").on(table.managementNumber),
+    uniqueIndex("idx_products_management_number").on(table.managementNumber),
     index("idx_products_deleted_at").on(table.deletedAt),
   ],
 );

@@ -7,7 +7,7 @@ import {
   verifyPassword,
 } from "./auth/password";
 import { D1InventoryStore } from "./d1-store";
-import type { InventoryStore, ProductStatus, PublicUser, User } from "./store";
+import { DuplicateManagementNumberError, type InventoryStore, type ProductStatus, type PublicUser, type User } from "./store";
 import { toPublicUser } from "./store";
 
 type Bindings = {
@@ -37,6 +37,17 @@ const emailSchema = z
 const roleSchema = z.enum(["admin", "member"]);
 const sizeSchema = z.enum(["XS", "S", "M", "L", "XL", "2XL", "3XL", "FREE", "不明"]);
 const statusSchema = z.enum(["unmeasured", "measured", "selling", "sold", "returned"]);
+const priceSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .nullable()
+  .optional();
+const measurementNumberSchema = z
+  .number()
+  .nonnegative()
+  .nullable()
+  .optional();
 const productInputSchema = z.object({
   managementNumber: z.string().min(1),
   imageKey: z.string().nullable().optional(),
@@ -44,19 +55,28 @@ const productInputSchema = z.object({
   mainCategory: z.string().min(1),
   subCategory: z.string().nullable().optional(),
   size: sizeSchema,
-  price: z.number().int().nullable().optional(),
+  price: priceSchema,
   note: z.string().nullable().optional(),
 });
 const measurementSchema = z.object({
-  lengthCm: z.number().nullable().optional(),
-  bodyWidthCm: z.number().nullable().optional(),
-  shoulderWidthCm: z.number().nullable().optional(),
-  sleeveLengthCm: z.number().nullable().optional(),
-  waistCm: z.number().nullable().optional(),
-  riseCm: z.number().nullable().optional(),
-  inseamCm: z.number().nullable().optional(),
-  thighWidthCm: z.number().nullable().optional(),
-  hemWidthCm: z.number().nullable().optional(),
+  lengthCm: measurementNumberSchema,
+  bodyWidthCm: measurementNumberSchema,
+  shoulderWidthCm: measurementNumberSchema,
+  sleeveLengthCm: measurementNumberSchema,
+  waistCm: measurementNumberSchema,
+  riseCm: measurementNumberSchema,
+  inseamCm: measurementNumberSchema,
+  thighWidthCm: measurementNumberSchema,
+  hemWidthCm: measurementNumberSchema,
+});
+const bulkStatusSchema = z.object({
+  fromStatus: statusSchema.optional(),
+  ids: z.array(z.number().int().positive()).optional(),
+  status: statusSchema,
+});
+const bulkDeleteSchema = z.object({
+  status: statusSchema.optional(),
+  ids: z.array(z.number().int().positive()).optional(),
 });
 
 async function sha256(input: string) {
@@ -87,6 +107,23 @@ function requireAdmin(user: User | null) {
 
 function publicUserResponse(user: User): PublicUser {
   return toPublicUser(user);
+}
+
+function duplicateManagementNumberResponse(managementNumber: string) {
+  return {
+    error: "duplicate_management_number",
+    message: `管理番号「${managementNumber}」はすでに登録されています。別の管理番号を入力してください。`,
+  };
+}
+
+function productInputErrorMessage(issues: z.core.$ZodIssue[]) {
+  return issues.some((issue) => issue.path[0] === "price")
+    ? "販売価格は0以上の数字のみで入力してください。"
+    : "商品情報の入力内容を確認してください。";
+}
+
+function measurementInputErrorMessage() {
+  return "採寸情報は0以上の数字のみで入力してください。";
 }
 
 export function createApp(options: { auth?: PasswordHashConfig; store?: InventoryStore } = {}) {
@@ -193,12 +230,14 @@ export function createApp(options: { auth?: PasswordHashConfig; store?: Inventor
   app.get("/api/products", async (c) => {
     const unauthorized = requireUser(c.get("currentUser"));
     if (unauthorized) return c.json(unauthorized, 401);
+    await c.get("store").purgeExpiredDeletedProducts();
     const status = c.req.query("status");
     const parsedStatus = status ? statusSchema.safeParse(status) : null;
     if (parsedStatus && !parsedStatus.success) return c.json({ error: "invalid_status" }, 400);
+    const statusValue = parsedStatus?.success ? parsedStatus.data : undefined;
     const products = await c.get("store").listProducts({
-      includeDeleted: c.req.query("includeDeleted") === "true" && c.get("currentUser")?.role === "admin",
-      status: parsedStatus?.success ? parsedStatus.data : undefined,
+      includeDeleted: c.req.query("includeDeleted") === "true" || statusValue === "sold",
+      status: statusValue,
     });
     return c.json({ products });
   });
@@ -208,9 +247,18 @@ export function createApp(options: { auth?: PasswordHashConfig; store?: Inventor
     const unauthorized = requireUser(user);
     if (unauthorized || !user) return c.json(unauthorized, 401);
     const body = productInputSchema.safeParse(await c.req.json());
-    if (!body.success) return c.json({ error: "invalid_request", issues: body.error.issues }, 400);
-    const product = await c.get("store").createProduct({ ...body.data, createdBy: user.id });
-    return c.json({ product }, 201);
+    if (!body.success) {
+      return c.json({ error: "invalid_request", message: productInputErrorMessage(body.error.issues), issues: body.error.issues }, 400);
+    }
+    try {
+      const product = await c.get("store").createProduct({ ...body.data, createdBy: user.id });
+      return c.json({ product }, 201);
+    } catch (error) {
+      if (error instanceof DuplicateManagementNumberError) {
+        return c.json(duplicateManagementNumberResponse(error.managementNumber), 409);
+      }
+      throw error;
+    }
   });
 
   app.get("/api/products/:id", async (c) => {
@@ -218,7 +266,7 @@ export function createApp(options: { auth?: PasswordHashConfig; store?: Inventor
     if (unauthorized) return c.json(unauthorized, 401);
     const id = parseId(c.req.param("id"));
     if (!id) return c.json({ error: "invalid_id" }, 400);
-    const product = await c.get("store").getProduct(id, c.get("currentUser")?.role === "admin");
+    const product = await c.get("store").getProduct(id, true);
     return product ? c.json({ product }) : c.json({ error: "not_found" }, 404);
   });
 
@@ -229,9 +277,18 @@ export function createApp(options: { auth?: PasswordHashConfig; store?: Inventor
     const id = parseId(c.req.param("id"));
     if (!id) return c.json({ error: "invalid_id" }, 400);
     const body = productInputSchema.partial().safeParse(await c.req.json());
-    if (!body.success) return c.json({ error: "invalid_request", issues: body.error.issues }, 400);
-    const product = await c.get("store").updateProduct(id, { ...body.data, updatedBy: user.id });
-    return product ? c.json({ product }) : c.json({ error: "not_found" }, 404);
+    if (!body.success) {
+      return c.json({ error: "invalid_request", message: productInputErrorMessage(body.error.issues), issues: body.error.issues }, 400);
+    }
+    try {
+      const product = await c.get("store").updateProduct(id, { ...body.data, updatedBy: user.id });
+      return product ? c.json({ product }) : c.json({ error: "not_found" }, 404);
+    } catch (error) {
+      if (error instanceof DuplicateManagementNumberError) {
+        return c.json(duplicateManagementNumberResponse(error.managementNumber), 409);
+      }
+      throw error;
+    }
   });
 
   app.patch("/api/products/:id/status", async (c) => {
@@ -246,14 +303,54 @@ export function createApp(options: { auth?: PasswordHashConfig; store?: Inventor
     return product ? c.json({ product }) : c.json({ error: "not_found" }, 404);
   });
 
+  app.post("/api/products/bulk/status", async (c) => {
+    const user = c.get("currentUser");
+    const unauthorized = requireUser(user);
+    if (unauthorized || !user) return c.json(unauthorized, 401);
+    const body = bulkStatusSchema.safeParse(await c.req.json());
+    if (!body.success) return c.json({ error: "invalid_request", issues: body.error.issues }, 400);
+    const products = await c.get("store").listProducts({
+      includeDeleted: body.data.fromStatus === "sold",
+      status: body.data.fromStatus,
+    });
+    const targetIds = body.data.ids ? new Set(body.data.ids) : null;
+    const targetProducts = targetIds ? products.filter((product) => targetIds.has(product.id)) : products;
+    const updatedProducts = (
+      await Promise.all(
+        targetProducts.map((product) =>
+          c.get("store").updateProductStatus(product.id, body.data.status as ProductStatus, user.id),
+        ),
+      )
+    ).filter((product): product is NonNullable<typeof product> => Boolean(product));
+    return c.json({ count: updatedProducts.length, products: updatedProducts });
+  });
+
+  app.post("/api/products/bulk/delete", async (c) => {
+    const user = c.get("currentUser");
+    const unauthorized = requireUser(user);
+    if (unauthorized || !user) return c.json(unauthorized, 401);
+    const body = bulkDeleteSchema.safeParse(await c.req.json());
+    if (!body.success) return c.json({ error: "invalid_request", issues: body.error.issues }, 400);
+    const products = await c.get("store").listProducts({
+      includeDeleted: body.data.status === "sold",
+      status: body.data.status,
+    });
+    const targetIds = body.data.ids ? new Set(body.data.ids) : null;
+    const targetProducts = targetIds ? products.filter((product) => targetIds.has(product.id)) : products;
+    const deletedResults = await Promise.all(
+      targetProducts.map((product) => c.get("store").hardDeleteProduct(product.id)),
+    );
+    return c.json({ count: deletedResults.filter(Boolean).length, products: targetProducts });
+  });
+
   app.delete("/api/products/:id", async (c) => {
     const user = c.get("currentUser");
-    const forbidden = requireAdmin(user);
-    if (forbidden || !user) return c.json(forbidden, forbidden?.error === "forbidden" ? 403 : 401);
+    const unauthorized = requireUser(user);
+    if (unauthorized || !user) return c.json(unauthorized, 401);
     const id = parseId(c.req.param("id"));
     if (!id) return c.json({ error: "invalid_id" }, 400);
-    const product = await c.get("store").softDeleteProduct(id, user.id);
-    return product ? c.json({ product }) : c.json({ error: "not_found" }, 404);
+    const deleted = await c.get("store").hardDeleteProduct(id);
+    return deleted ? c.json({ ok: true }) : c.json({ error: "not_found" }, 404);
   });
 
   app.get("/api/products/:id/measurement", async (c) => {
@@ -272,7 +369,9 @@ export function createApp(options: { auth?: PasswordHashConfig; store?: Inventor
     const id = parseId(c.req.param("id"));
     if (!id) return c.json({ error: "invalid_id" }, 400);
     const body = measurementSchema.safeParse(await c.req.json());
-    if (!body.success) return c.json({ error: "invalid_request", issues: body.error.issues }, 400);
+    if (!body.success) {
+      return c.json({ error: "invalid_request", message: measurementInputErrorMessage(), issues: body.error.issues }, 400);
+    }
     const measurement = await c.get("store").upsertMeasurement(id, { ...body.data, measuredBy: user.id });
     return c.json({ measurement });
   });

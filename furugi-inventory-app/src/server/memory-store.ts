@@ -1,3 +1,4 @@
+import { DuplicateManagementNumberError } from "./store";
 import type {
   InventoryStore,
   Measurement,
@@ -89,6 +90,9 @@ export class MemoryInventoryStore implements InventoryStore {
   }
 
   async createProduct(input: ProductInput & { createdBy: number }) {
+    if ([...this.products.values()].some((product) => product.managementNumber === input.managementNumber)) {
+      throw new DuplicateManagementNumberError(input.managementNumber);
+    }
     const timestamp = now();
     const product: Product = {
       id: this.productSeq++,
@@ -116,27 +120,71 @@ export class MemoryInventoryStore implements InventoryStore {
   }
 
   async updateProduct(id: number, input: ProductPatch & { updatedBy: number }) {
-    const product = await this.getProduct(id);
+    const product = await this.getProduct(id, true);
     if (!product) return null;
+    if (
+      input.managementNumber &&
+      [...this.products.values()].some(
+        (existingProduct) =>
+          existingProduct.id !== id && existingProduct.managementNumber === input.managementNumber,
+      )
+    ) {
+      throw new DuplicateManagementNumberError(input.managementNumber);
+    }
     const updated = { ...product, ...input, updatedAt: now() };
     this.products.set(id, updated);
     return updated;
   }
 
   async updateProductStatus(id: number, status: ProductStatus, updatedBy: number) {
-    const product = await this.getProduct(id);
+    const product = await this.getProduct(id, true);
     if (!product) return null;
-    const updated = { ...product, status, updatedBy, updatedAt: now() };
+    const timestamp = now();
+    const updated = {
+      ...product,
+      status,
+      deletedAt: status === "sold" ? product.deletedAt ?? timestamp : null,
+      deletedBy: status === "sold" ? updatedBy : null,
+      updatedBy,
+      updatedAt: timestamp,
+    };
+    this.products.set(id, updated);
+    return updated;
+  }
+
+  async restoreProduct(id: number, status: ProductStatus, updatedBy: number) {
+    const product = await this.getProduct(id, true);
+    if (!product) return null;
+    const updated = {
+      ...product,
+      status,
+      deletedAt: null,
+      deletedBy: null,
+      updatedBy,
+      updatedAt: now(),
+    };
     this.products.set(id, updated);
     return updated;
   }
 
   async softDeleteProduct(id: number, deletedBy: number) {
-    const product = await this.getProduct(id);
-    if (!product) return null;
-    const updated = { ...product, deletedAt: now(), deletedBy, updatedBy: deletedBy, updatedAt: now() };
-    this.products.set(id, updated);
-    return updated;
+    return this.updateProductStatus(id, "sold", deletedBy);
+  }
+
+  async hardDeleteProduct(id: number) {
+    const existed = this.products.delete(id);
+    this.measurements.delete(id);
+    this.sales.delete(id);
+    return existed;
+  }
+
+  async purgeExpiredDeletedProducts(currentDate = new Date()) {
+    const threshold = currentDate.getTime() - 30 * 24 * 60 * 60 * 1000;
+    const expiredIds = [...this.products.values()]
+      .filter((product) => product.deletedAt && new Date(product.deletedAt).getTime() <= threshold)
+      .map((product) => product.id);
+    await Promise.all(expiredIds.map((id) => this.hardDeleteProduct(id)));
+    return expiredIds.length;
   }
 
   async getMeasurement(productId: number) {

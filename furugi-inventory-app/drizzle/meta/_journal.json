@@ -15,6 +15,13 @@
       "when": 1782123867177,
       "tag": "0001_melted_justin_hammer",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1782352112617,
+      "tag": "0002_narrow_jasper_sitwell",
+      "breakpoints": true
     }
   ]
 }
