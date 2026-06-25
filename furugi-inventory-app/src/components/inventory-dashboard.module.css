@@ -5,6 +5,9 @@
 }
 
 .header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -16,6 +19,46 @@
   border-bottom: 1px solid #e7ddfb;
   border-left: 1px solid #e7ddfb;
   border-radius: 8px;
+  box-shadow: 0 12px 30px rgb(77 57 123 / 8%);
+}
+
+.headerContent {
+  min-width: min(420px, 100%);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sectionNav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 4px;
+  background: #ffffff;
+  border: 1px solid #e3d8f7;
+  border-radius: 8px;
+}
+
+.sectionNav button {
+  min-height: 32px;
+  padding: 0 12px;
+  color: #5b438f;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.sectionNav button:hover {
+  background: #f2ecfb;
 }
 
 .kicker,
@@ -60,6 +103,7 @@
 .overviewDropdown {
   position: relative;
   margin-top: 16px;
+  scroll-margin-top: 138px;
 }
 
 .overviewDropdown summary {
@@ -147,7 +191,6 @@
   border-radius: 8px;
 }
 
-.formPanel,
 .sidePanel {
   padding: 22px;
 }
@@ -155,6 +198,8 @@
 .formPanel {
   display: grid;
   justify-items: center;
+  padding: 0;
+  scroll-margin-top: 138px;
 }
 
 .panelHeader,
@@ -166,9 +211,33 @@
   flex-wrap: wrap;
 }
 
-.formPanel .panelHeader {
-  width: min(100%, 620px);
-  justify-content: flex-start;
+.registerSummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-height: 84px;
+  padding: 22px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.registerSummary::-webkit-details-marker {
+  display: none;
+}
+
+.registerSummary::after {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid #7654c8;
+  border-bottom: 2px solid #7654c8;
+  transform: rotate(45deg);
+}
+
+.formPanel[open] .registerSummary::after {
+  transform: translateY(4px) rotate(225deg);
 }
 
 .badge,
@@ -197,19 +266,28 @@
 }
 
 .formGrid {
-  grid-template-columns: repeat(2, minmax(220px, 280px));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   justify-content: center;
-  width: min(100%, 620px);
+  width: min(100%, 920px);
+  padding: 0 22px 22px;
 }
 
 .measureGrid {
-  grid-template-columns: repeat(4, minmax(116px, 136px));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   justify-content: start;
 }
 
 .fullWidth {
   grid-column: 1 / -1;
-  width: min(100%, 570px);
+  width: 100%;
+}
+
+.imageField {
+  grid-column: span 1;
+}
+
+.noteField {
+  grid-column: span 2;
 }
 
 .formGrid label,
@@ -238,7 +316,7 @@
 
 .measurementFieldset {
   grid-column: 1 / -1;
-  width: min(100%, 620px);
+  width: 100%;
   margin: 0;
   padding: 0;
   border: 0;
@@ -270,6 +348,7 @@
 .inventoryArea {
   margin-top: 16px;
   padding: 22px;
+  scroll-margin-top: 138px;
 }
 
 .segmented {
@@ -333,10 +412,17 @@
   border-color: #ebe4f5;
 }
 
+.paginationInfo {
+  margin-top: 18px;
+  color: #6b6573;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .productGrid {
   display: grid;
   align-items: start;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 14px;
   margin-top: 18px;
 }
@@ -542,6 +628,40 @@
   font-size: 12px;
 }
 
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+}
+
+.pagination button {
+  min-width: 40px;
+  min-height: 38px;
+  padding: 0 12px;
+  color: #5b438f;
+  background: #ffffff;
+  border: 1px solid #dfd3f4;
+  border-radius: 8px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.pagination .activePage {
+  color: #ffffff;
+  background: #7654c8;
+  border-color: #7654c8;
+}
+
+.pagination button:disabled {
+  color: #a8a0b2;
+  cursor: not-allowed;
+  background: #f7f4fb;
+  border-color: #ebe4f5;
+}
+
 .dialogBackdrop {
   position: fixed;
   inset: 0;
@@ -602,7 +722,7 @@
   grid-column: 1 / -1;
   display: flex;
   justify-content: center;
-  width: min(100%, 570px);
+  width: 100%;
   margin-top: 4px;
 }
 
@@ -638,14 +758,21 @@
     flex-direction: column;
   }
 
+  .headerActions,
+  .sectionNav {
+    width: 100%;
+  }
+
+  .sectionNav button {
+    flex: 1;
+  }
+
   .primaryButton {
     width: 100%;
   }
 
   .overviewMenu,
-  .workspace,
-  .formGrid,
-  .measureGrid {
+  .workspace {
     grid-template-columns: 1fr;
   }
 
@@ -680,6 +807,19 @@
     flex: 1;
   }
 
+  .formGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .measurementFieldset,
+  .noteField {
+    grid-column: 1 / -1;
+  }
+
+  .measureGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .expandedCard {
     grid-column: span 1;
   }
@@ -692,13 +832,35 @@
   }
 
   .header,
-  .formPanel,
   .sidePanel,
   .inventoryArea {
     padding: 18px;
   }
 
+  .registerSummary {
+    padding: 18px;
+  }
+
+  .formGrid {
+    grid-template-columns: 1fr;
+    padding: 0 18px 18px;
+  }
+
+  .sectionNav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .sectionNav button {
+    padding: 0 8px;
+  }
+
   .measureGrid {
     grid-template-columns: 1fr;
+  }
+
+  .imageField,
+  .noteField {
+    grid-column: 1 / -1;
   }
 }

@@ -1,3 +1,4 @@
+import { DuplicateManagementNumberError } from "./store";
 import type {
   InventoryStore,
   Measurement,
@@ -170,6 +171,12 @@ export class D1InventoryStore implements InventoryStore {
   }
 
   async createProduct(input: ProductInput & { createdBy: number }) {
+    const duplicate = await first(
+      this.db.prepare("SELECT id FROM products WHERE management_number = ? LIMIT 1").bind(input.managementNumber),
+      (row) => row,
+    );
+    if (duplicate) throw new DuplicateManagementNumberError(input.managementNumber);
+
     const result = await this.db
       .prepare(
         `INSERT INTO products
@@ -197,14 +204,23 @@ export class D1InventoryStore implements InventoryStore {
   }
 
   async updateProduct(id: number, input: ProductPatch & { updatedBy: number }) {
-    const current = await this.getProduct(id);
+    const current = await this.getProduct(id, true);
     if (!current) return null;
+    if (input.managementNumber) {
+      const duplicate = await first(
+        this.db
+          .prepare("SELECT id FROM products WHERE management_number = ? AND id <> ? LIMIT 1")
+          .bind(input.managementNumber, id),
+        (row) => row,
+      );
+      if (duplicate) throw new DuplicateManagementNumberError(input.managementNumber);
+    }
     const next = { ...current, ...input };
     await this.db
       .prepare(
         `UPDATE products SET management_number = ?, image_key = ?, colour = ?, main_category = ?,
           sub_category = ?, size = ?, price = ?, note = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ? AND deleted_at IS NULL`,
+         WHERE id = ?`,
       )
       .bind(
         next.managementNumber,
@@ -219,26 +235,63 @@ export class D1InventoryStore implements InventoryStore {
         id,
       )
       .run();
-    return this.getProduct(id);
+    return this.getProduct(id, true);
   }
 
   async updateProductStatus(id: number, status: ProductStatus, updatedBy: number) {
+    if (status === "sold") {
+      await this.db
+        .prepare(
+          `UPDATE products SET status = ?, deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP),
+            deleted_by = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        )
+        .bind(status, updatedBy, updatedBy, id)
+        .run();
+      return this.getProduct(id, true);
+    }
+
     await this.db
-      .prepare("UPDATE products SET status = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL")
+      .prepare(
+        `UPDATE products SET status = ?, deleted_at = NULL, deleted_by = NULL,
+          updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      )
+      .bind(status, updatedBy, id)
+      .run();
+    return this.getProduct(id, true);
+  }
+
+  async restoreProduct(id: number, status: ProductStatus, updatedBy: number) {
+    await this.db
+      .prepare(
+        `UPDATE products SET status = ?, deleted_at = NULL, deleted_by = NULL, updated_by = ?,
+          updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      )
       .bind(status, updatedBy, id)
       .run();
     return this.getProduct(id);
   }
 
   async softDeleteProduct(id: number, deletedBy: number) {
-    await this.db
-      .prepare(
-        `UPDATE products SET deleted_at = CURRENT_TIMESTAMP, deleted_by = ?, updated_by = ?,
-          updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`,
-      )
-      .bind(deletedBy, deletedBy, id)
-      .run();
-    return this.getProduct(id, true);
+    return this.updateProductStatus(id, "sold", deletedBy);
+  }
+
+  async hardDeleteProduct(id: number) {
+    const product = await this.getProduct(id, true);
+    if (!product) return false;
+    await this.db.prepare("DELETE FROM measurements WHERE product_id = ?").bind(id).run();
+    await this.db.prepare("DELETE FROM sales WHERE product_id = ?").bind(id).run();
+    await this.db.prepare("DELETE FROM products WHERE id = ?").bind(id).run();
+    return true;
+  }
+
+  async purgeExpiredDeletedProducts() {
+    const expired = await this.db
+      .prepare("SELECT id FROM products WHERE deleted_at IS NOT NULL AND deleted_at <= datetime('now', '-30 days')")
+      .all<Row>();
+    for (const row of expired.results) {
+      await this.hardDeleteProduct(Number(row.id));
+    }
+    return expired.results.length;
   }
 
   async getMeasurement(productId: number) {

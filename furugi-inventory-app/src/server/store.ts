@@ -2,6 +2,13 @@ export type UserRole = "admin" | "member";
 export type ProductStatus = "unmeasured" | "measured" | "selling" | "sold" | "returned";
 export type ProductSize = "XS" | "S" | "M" | "L" | "XL" | "2XL" | "3XL" | "FREE" | "不明";
 
+export class DuplicateManagementNumberError extends Error {
+  constructor(readonly managementNumber: string) {
+    super(`Duplicate management number: ${managementNumber}`);
+    this.name = "DuplicateManagementNumberError";
+  }
+}
+
 export type User = {
   id: number;
   name: string;
@@ -122,6 +129,9 @@ export interface InventoryStore {
   updateProduct(id: number, input: ProductPatch & { updatedBy: number }): Promise<Product | null>;
   updateProductStatus(id: number, status: ProductStatus, updatedBy: number): Promise<Product | null>;
   softDeleteProduct(id: number, deletedBy: number): Promise<Product | null>;
+  restoreProduct(id: number, status: ProductStatus, updatedBy: number): Promise<Product | null>;
+  hardDeleteProduct(id: number): Promise<boolean>;
+  purgeExpiredDeletedProducts(now?: Date): Promise<number>;
   getMeasurement(productId: number): Promise<Measurement | null>;
   upsertMeasurement(productId: number, input: MeasurementInput & { measuredBy: number }): Promise<Measurement>;
   upsertSale(productId: number, input: Partial<SaleInput> & { soldBy: number }): Promise<Sale>;
