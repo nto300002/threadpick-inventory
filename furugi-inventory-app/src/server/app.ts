@@ -13,7 +13,10 @@ import { toPublicUser } from "./store";
 type Bindings = {
   DB: D1Database;
   AUTH_PEPPER?: string;
+  FRONTEND_ORIGIN?: string;
   PRODUCT_IMAGES: R2Bucket;
+  SESSION_COOKIE_DOMAIN?: string;
+  SESSION_SAME_SITE?: "Lax" | "Strict" | "None";
 };
 
 type Variables = {
@@ -24,6 +27,8 @@ type Variables = {
 
 const sessionCookie = "threadpick_session";
 const sessionHours = 8;
+const defaultAllowedMethods = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
+const defaultAllowedHeaders = "content-type";
 const passwordSchema = z
   .string()
   .min(8, "password must be at least 8 characters")
@@ -78,6 +83,56 @@ const bulkDeleteSchema = z.object({
   status: statusSchema.optional(),
   ids: z.array(z.number().int().positive()).optional(),
 });
+const imageUploadSchema = z.object({
+  dataUrl: z.string().min(1),
+});
+
+function isAllowedOrigin(origin: string | undefined, frontendOrigin: string | undefined) {
+  if (!origin) return false;
+  const allowedOrigins = (frontendOrigin ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return allowedOrigins.includes(origin);
+}
+
+function applyCorsHeaders(response: Response, origin: string) {
+  response.headers.set("Access-Control-Allow-Origin", origin);
+  response.headers.set("Access-Control-Allow-Credentials", "true");
+  response.headers.append("Vary", "Origin");
+  return response;
+}
+
+function cookieOptions(env: Bindings | undefined) {
+  return {
+    domain: env?.SESSION_COOKIE_DOMAIN,
+    httpOnly: true,
+    maxAge: sessionHours * 60 * 60,
+    path: "/",
+    sameSite: env?.SESSION_SAME_SITE ?? "Lax",
+    secure: true,
+  } as const;
+}
+
+function decodeDataUrl(dataUrl: string) {
+  const match = /^data:(image\/[A-Za-z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
+  if (!match) return null;
+  const [, contentType, base64] = match;
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return { bytes, contentType };
+}
+
+function imageExtension(contentType: string) {
+  if (contentType === "image/jpeg") return "jpg";
+  if (contentType === "image/png") return "png";
+  if (contentType === "image/webp") return "webp";
+  if (contentType === "image/gif") return "gif";
+  return "bin";
+}
 
 async function sha256(input: string) {
   const bytes = new TextEncoder().encode(input);
@@ -128,6 +183,27 @@ function measurementInputErrorMessage() {
 
 export function createApp(options: { auth?: PasswordHashConfig; store?: InventoryStore } = {}) {
   const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+
+  app.use("*", async (c, next) => {
+    const origin = c.req.header("origin");
+    const isCorsOrigin = isAllowedOrigin(origin, c.env?.FRONTEND_ORIGIN);
+    if (c.req.method === "OPTIONS") {
+      const response = new Response(null, {
+        headers: {
+          "Access-Control-Allow-Headers": c.req.header("access-control-request-headers") ?? defaultAllowedHeaders,
+          "Access-Control-Allow-Methods": defaultAllowedMethods,
+          "Access-Control-Max-Age": "86400",
+        },
+        status: isCorsOrigin ? 204 : 403,
+      });
+      return isCorsOrigin && origin ? applyCorsHeaders(response, origin) : response;
+    }
+
+    await next();
+    if (isCorsOrigin && origin) {
+      applyCorsHeaders(c.res, origin);
+    }
+  });
 
   app.use("*", async (c, next) => {
     const store = options.store ?? new D1InventoryStore(c.env.DB);
@@ -205,21 +281,45 @@ export function createApp(options: { auth?: PasswordHashConfig; store?: Inventor
     const tokenHash = await sha256(token);
     const expiresAt = new Date(Date.now() + sessionHours * 60 * 60 * 1000).toISOString();
     await store.createSession({ userId: user.id, tokenHash, expiresAt });
-    setCookie(c, sessionCookie, token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "Lax",
-      path: "/",
-      maxAge: sessionHours * 60 * 60,
-    });
+    setCookie(c, sessionCookie, token, cookieOptions(c.env));
     return c.json({ user: publicUserResponse(user) });
   });
 
   app.post("/api/auth/logout", async (c) => {
     const tokenHash = c.get("tokenHash");
     if (tokenHash) await c.get("store").revokeSession(tokenHash);
-    setCookie(c, sessionCookie, "", { path: "/", maxAge: 0 });
+    setCookie(c, sessionCookie, "", { ...cookieOptions(c.env), maxAge: 0 });
     return c.json({ ok: true });
+  });
+
+  app.post("/api/images", async (c) => {
+    const unauthorized = requireUser(c.get("currentUser"));
+    if (unauthorized) return c.json(unauthorized, 401);
+    if (!c.env?.PRODUCT_IMAGES) return c.json({ error: "image_bucket_not_configured" }, 501);
+    const body = imageUploadSchema.safeParse(await c.req.json());
+    if (!body.success) return c.json({ error: "invalid_request" }, 400);
+    const decoded = decodeDataUrl(body.data.dataUrl);
+    if (!decoded) return c.json({ error: "invalid_image" }, 400);
+    const key = `products/${crypto.randomUUID()}.${imageExtension(decoded.contentType)}`;
+    await c.env.PRODUCT_IMAGES.put(key, decoded.bytes, {
+      httpMetadata: {
+        contentType: decoded.contentType,
+      },
+    });
+    return c.json({ imageKey: key }, 201);
+  });
+
+  app.get("/api/images/*", async (c) => {
+    if (!c.env?.PRODUCT_IMAGES) return c.json({ error: "image_bucket_not_configured" }, 501);
+    const key = c.req.path.replace(/^\/api\/images\//, "");
+    const object = await c.env.PRODUCT_IMAGES.get(key);
+    if (!object) return c.json({ error: "not_found" }, 404);
+    return new Response(object.body, {
+      headers: {
+        "cache-control": "public, max-age=31536000, immutable",
+        "content-type": object.httpMetadata?.contentType ?? "application/octet-stream",
+      },
+    });
   });
 
   app.get("/api/auth/me", (c) => {

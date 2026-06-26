@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
+import { apiUrl } from "@/lib/api/client";
 import styles from "./auth-page.module.css";
 import { AuthToast, queueAuthToast, useQueuedAuthToast } from "./auth-toast";
 
@@ -114,7 +115,7 @@ function AuthForm({ mode }: { mode: AuthMode }) {
 
     setErrors([]);
     setIsSubmitting(true);
-    const endpoint = isSignup ? "/api/auth/signup" : "/api/auth/login";
+    const endpoint = isSignup ? apiUrl("/api/auth/signup") : apiUrl("/api/auth/login");
     const response = await fetch(endpoint, {
       body: JSON.stringify(
         isSignup
