@@ -4,7 +4,7 @@ export type PasswordHashConfig = {
 };
 
 const algorithm = "pbkdf2-sha256";
-const defaultIterations = 600_000;
+const defaultIterations = 100_000;
 const keyLengthBits = 256;
 
 function getIterations(config: PasswordHashConfig = {}) {

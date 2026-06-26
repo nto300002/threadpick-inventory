@@ -16,6 +16,12 @@ describe("password hashing", () => {
     expect(firstHash).not.toBe(secondHash);
   });
 
+  it("uses a Workers-compatible default iteration count", async () => {
+    const passwordHash = await hashPassword("Password!1");
+
+    expect(passwordHash).toMatch(/^pbkdf2-sha256\$i=100000\$/);
+  });
+
   it("verifies correct passwords and rejects incorrect passwords", async () => {
     const passwordHash = await hashPassword("Password!1", testConfig);
 
