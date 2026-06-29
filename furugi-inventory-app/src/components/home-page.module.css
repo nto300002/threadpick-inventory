@@ -1,0 +1,211 @@
+.page {
+  min-height: 100vh;
+  background: #f8f6fb;
+}
+
+.hero {
+  position: relative;
+  display: grid;
+  align-items: end;
+  min-height: min(620px, 86vh);
+  padding: 28px;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, rgb(36 32 41 / 82%) 0%, rgb(36 32 41 / 58%) 44%, rgb(36 32 41 / 18%) 100%),
+    url("/images/dummy-vintage-sweatshirt.png") center right / cover;
+  border-bottom: 1px solid #e8e2f4;
+}
+
+.heroInner {
+  width: min(1080px, 100%);
+  margin: 0 auto;
+  padding: 36px 0;
+}
+
+.kicker,
+.sectionLabel {
+  margin: 0;
+  color: #d9cdf4;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.hero h1 {
+  max-width: 720px;
+  margin: 10px 0 0;
+  color: #ffffff;
+  font-size: clamp(36px, 7vw, 72px);
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+
+.lead {
+  max-width: 620px;
+  margin: 18px 0 0;
+  color: #f3eefc;
+  font-size: clamp(16px, 2vw, 20px);
+  line-height: 1.8;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 28px;
+}
+
+.primaryLink,
+.secondaryLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  padding: 0 18px;
+  border-radius: 6px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.primaryLink {
+  color: #ffffff;
+  background: #7654c8;
+}
+
+.secondaryLink {
+  color: #ffffff;
+  background: rgb(255 255 255 / 14%);
+  border: 1px solid rgb(255 255 255 / 34%);
+}
+
+.content {
+  width: min(1080px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 34px 0 56px;
+}
+
+.sectionHeader {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.sectionHeader .sectionLabel {
+  color: #6d52a8;
+}
+
+.sectionHeader h2 {
+  margin: 0;
+  color: #242029;
+  font-size: clamp(24px, 4vw, 36px);
+  letter-spacing: 0;
+}
+
+.overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.overviewItem,
+.steps li {
+  background: #ffffff;
+  border: 1px solid #e8e2f4;
+  border-radius: 8px;
+  box-shadow: 0 10px 24px rgb(77 57 123 / 8%);
+}
+
+.overviewItem {
+  min-height: 150px;
+  padding: 20px;
+}
+
+.overviewItem h3,
+.steps h3 {
+  margin: 0;
+  color: #30283f;
+  font-size: 18px;
+  letter-spacing: 0;
+}
+
+.overviewItem p,
+.steps p {
+  margin: 10px 0 0;
+  color: #625b6c;
+  line-height: 1.8;
+}
+
+.usage {
+  margin-top: 34px;
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.steps li {
+  min-height: 160px;
+  padding: 18px;
+}
+
+.stepNumber {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  margin-bottom: 14px;
+  color: #ffffff;
+  background: #7654c8;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.loading {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  color: #6b6573;
+  font-weight: 800;
+}
+
+@media (max-width: 860px) {
+  .hero {
+    min-height: 620px;
+    background:
+      linear-gradient(180deg, rgb(36 32 41 / 78%) 0%, rgb(36 32 41 / 66%) 52%, rgb(36 32 41 / 28%) 100%),
+      url("/images/dummy-vintage-sweatshirt.png") center / cover;
+  }
+
+  .overview,
+  .steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .hero {
+    min-height: 640px;
+    padding: 20px;
+  }
+
+  .content {
+    width: min(100% - 24px, 1080px);
+  }
+
+  .overview,
+  .steps {
+    grid-template-columns: 1fr;
+  }
+
+  .primaryLink,
+  .secondaryLink {
+    width: 100%;
+  }
+}
