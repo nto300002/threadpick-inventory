@@ -3,6 +3,7 @@
 import { ChangeEvent, FormEvent, useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { apiUrl } from "@/lib/api/client";
 import styles from "./inventory-dashboard.module.css";
 import { AuthToast, queueAuthToast, useQueuedAuthToast } from "./auth-toast";
 
@@ -93,7 +94,7 @@ function productImage(imageKey: string | null) {
   if (imageKey.startsWith("/") || imageKey.startsWith("http") || imageKey.startsWith("data:")) {
     return imageKey;
   }
-  return dummyImage;
+  return apiUrl(`/api/images/${imageKey}`);
 }
 
 function toUiProduct(product: ApiProduct, measurement?: ApiMeasurement | null): Product {
@@ -170,6 +171,20 @@ async function fileToDataUrl(file: File) {
   });
 }
 
+async function uploadProductImage(dataUrl: string) {
+  const response = await fetch(apiUrl("/api/images"), {
+    body: JSON.stringify({ dataUrl }),
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  if (response.status === 401) return "unauthorized" as const;
+  if (response.status === 501) return dataUrl;
+  if (!response.ok) return null;
+  const body = await readJson<{ imageKey: string }>(response);
+  return body.imageKey;
+}
+
 export function InventoryDashboard() {
   const router = useRouter();
   const [toast, setToast] = useQueuedAuthToast();
@@ -220,7 +235,7 @@ export function InventoryDashboard() {
   async function fetchProductsFromApi() {
     let response: Response;
     try {
-      response = await fetch("/api/products?includeDeleted=true", {
+      response = await fetch(apiUrl("/api/products?includeDeleted=true"), {
         credentials: "include",
       });
     } catch {
@@ -238,7 +253,7 @@ export function InventoryDashboard() {
     const body = await readJson<{ products: ApiProduct[] }>(response);
     return Promise.all(
       body.products.map(async (product) => {
-        const measurementResponse = await fetch(`/api/products/${product.id}/measurement`, {
+        const measurementResponse = await fetch(apiUrl(`/api/products/${product.id}/measurement`), {
           credentials: "include",
         });
         const measurement =
@@ -304,8 +319,18 @@ export function InventoryDashboard() {
     const mainCategory = String(formData.get("mainCategory") ?? "").trim();
     const size = String(formData.get("size") ?? "M") as ProductSize;
     const image = formData.get("image");
-    const imageKey = selectedImageDataUrl ?? (isUploadedFile(image) ? await fileToDataUrl(image) : null);
+    const imageDataUrl = selectedImageDataUrl ?? (isUploadedFile(image) ? await fileToDataUrl(image) : null);
+    const imageKey = imageDataUrl ? await uploadProductImage(imageDataUrl) : null;
     const price = optionalNumber(formData, "price");
+
+    if (imageKey === "unauthorized") {
+      handleExpiredSession();
+      return;
+    }
+    if (imageDataUrl && !imageKey) {
+      setToast({ intent: "error", message: "画像アップロードに失敗しました。" });
+      return;
+    }
 
     if (products.some((product) => product.number === managementNumber)) {
       setToast({
@@ -315,7 +340,7 @@ export function InventoryDashboard() {
       return;
     }
 
-    const response = await fetch("/api/products", {
+    const response = await fetch(apiUrl("/api/products"), {
       body: JSON.stringify({
         managementNumber,
         imageKey,
@@ -347,7 +372,7 @@ export function InventoryDashboard() {
       shoulderWidthCm: optionalNumber(formData, "shoulderWidthCm"),
       sleeveLengthCm: optionalNumber(formData, "sleeveLengthCm"),
     };
-    const measurementResponse = await fetch(`/api/products/${body.product.id}/measurement`, {
+    const measurementResponse = await fetch(apiUrl(`/api/products/${body.product.id}/measurement`), {
       body: JSON.stringify(measurementBody),
       credentials: "include",
       headers: { "content-type": "application/json" },
@@ -358,7 +383,7 @@ export function InventoryDashboard() {
       return;
     }
 
-    const statusResponse = await fetch(`/api/products/${body.product.id}/status`, {
+    const statusResponse = await fetch(apiUrl(`/api/products/${body.product.id}/status`), {
       body: JSON.stringify({ status: "selling" }),
       credentials: "include",
       headers: { "content-type": "application/json" },
@@ -381,7 +406,7 @@ export function InventoryDashboard() {
 
   async function updateProductStatus(product: Product, status: ProductStatus) {
     const apiStatus: ApiProductStatus = status === "売却済み" ? "sold" : "selling";
-    const response = await fetch(`/api/products/${product.id}/status`, {
+    const response = await fetch(apiUrl(`/api/products/${product.id}/status`), {
       body: JSON.stringify({ status: apiStatus }),
       credentials: "include",
       headers: { "content-type": "application/json" },
@@ -403,7 +428,7 @@ export function InventoryDashboard() {
   }
 
   async function deleteProduct(product: Product) {
-    const response = await fetch(`/api/products/${product.id}`, {
+    const response = await fetch(apiUrl(`/api/products/${product.id}`), {
       credentials: "include",
       method: "DELETE",
     });
@@ -427,7 +452,7 @@ export function InventoryDashboard() {
     const ids = products
       .filter((product) => registeredApiStatuses.includes(product.apiStatus))
       .map((product) => product.id);
-    const response = await fetch("/api/products/bulk/status", {
+    const response = await fetch(apiUrl("/api/products/bulk/status"), {
       body: JSON.stringify({ ids, status: "sold" }),
       credentials: "include",
       headers: { "content-type": "application/json" },
@@ -449,7 +474,7 @@ export function InventoryDashboard() {
   }
 
   async function deleteSoldProducts() {
-    const response = await fetch("/api/products/bulk/delete", {
+    const response = await fetch(apiUrl("/api/products/bulk/delete"), {
       body: JSON.stringify({ status: "sold" }),
       credentials: "include",
       headers: { "content-type": "application/json" },
@@ -475,7 +500,7 @@ export function InventoryDashboard() {
   }
 
   async function logout() {
-    const response = await fetch("/api/auth/logout", {
+    const response = await fetch(apiUrl("/api/auth/logout"), {
       credentials: "include",
       method: "POST",
     });

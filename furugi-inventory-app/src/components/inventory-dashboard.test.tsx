@@ -98,6 +98,9 @@ describe("InventoryDashboard", () => {
         if ((url === "/api/products" || url === "/api/products?includeDeleted=true") && method === "GET") {
           return jsonResponse({ products: apiProducts });
         }
+        if (url === "/api/images" && method === "POST") {
+          return jsonResponse({ imageKey: "products/uploaded-shirt.png" }, 201);
+        }
         if (url === "/api/products" && method === "POST") {
           if (productCreateUnauthorized) {
             return jsonResponse({ error: "unauthorized" }, 401);
@@ -451,15 +454,14 @@ describe("InventoryDashboard", () => {
       .mocked(fetch)
       .mock.calls.find(([url, init]) => url === "/api/products" && init?.method === "POST");
     expect(JSON.parse(String(createRequest?.[1]?.body))).toMatchObject({
-      imageKey: expect.stringContaining("data:image/png;base64"),
+      imageKey: "products/uploaded-shirt.png",
     });
+    expect(fetch).toHaveBeenCalledWith("/api/images", expect.objectContaining({ method: "POST" }));
     expect(fetch).toHaveBeenCalledWith("/api/products/4/measurement", expect.objectContaining({ method: "PUT" }));
     expect(fetch).toHaveBeenCalledWith("/api/products/4/status", expect.objectContaining({ method: "PATCH" }));
     const createdCard = await screen.findByTestId("product-card-TP-2000");
-    expect(within(createdCard).getByRole("img", { name: "TP-2000の商品画像" })).toHaveAttribute(
-      "src",
-      expect.stringContaining("data:image/png;base64"),
-    );
+    const imageSrc = within(createdCard).getByRole("img", { name: "TP-2000の商品画像" }).getAttribute("src") ?? "";
+    expect(decodeURIComponent(imageSrc)).toContain("/api/images/products/uploaded-shirt.png");
     expect(screen.getByText("在庫数 4")).toBeInTheDocument();
   });
 

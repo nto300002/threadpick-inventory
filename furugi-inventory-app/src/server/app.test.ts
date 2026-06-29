@@ -14,6 +14,41 @@ function setup() {
   return { app, store };
 }
 
+function setupR2Bucket() {
+  const objects = new Map<string, { body: Uint8Array; contentType: string }>();
+  return {
+    bucket: {
+      async get(key: string) {
+        const object = objects.get(key);
+        if (!object) return null;
+        return {
+          body: new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(object.body);
+              controller.close();
+            },
+          }),
+          httpMetadata: { contentType: object.contentType },
+        };
+      },
+      async put(
+        key: string,
+        value: ArrayBuffer | ArrayBufferView | ReadableStream,
+        options?: { httpMetadata?: { contentType?: string } },
+      ) {
+        if (value instanceof ReadableStream) throw new Error("stream uploads are not used in this test");
+        const bytes = value instanceof ArrayBuffer ? new Uint8Array(value) : new Uint8Array(value.buffer);
+        objects.set(key, {
+          body: bytes,
+          contentType: options?.httpMetadata?.contentType ?? "application/octet-stream",
+        });
+        return null;
+      },
+    } as unknown as R2Bucket,
+    objects,
+  };
+}
+
 async function json<T>(response: Response) {
   return (await response.json()) as T;
 }
@@ -49,6 +84,57 @@ describe("Hono API", () => {
       ok: true,
       service: "threadpick-inventory",
     });
+  });
+
+  it("allows configured Vercel origins to call the Workers API with credentials", async () => {
+    const { app } = setup();
+    const response = await app.request(
+      "/api/health",
+      {
+        headers: {
+          "access-control-request-headers": "content-type",
+          origin: "https://threadpick.vercel.app",
+        },
+        method: "OPTIONS",
+      },
+      {
+        FRONTEND_ORIGIN: "https://threadpick.vercel.app",
+      },
+    );
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBe("https://threadpick.vercel.app");
+    expect(response.headers.get("access-control-allow-credentials")).toBe("true");
+  });
+
+  it("can issue cross-site session cookies for Vercel to Workers deployments", async () => {
+    const { app } = setup();
+
+    await app.request("/api/auth/signup", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Owner",
+        email: "owner@example.com",
+        password: "Password!1",
+      }),
+      headers: { "content-type": "application/json" },
+    });
+    const login = await app.request(
+      "/api/auth/login",
+      {
+        method: "POST",
+        body: JSON.stringify({ email: "owner@example.com", password: "Password!1" }),
+        headers: { "content-type": "application/json" },
+      },
+      {
+        SESSION_COOKIE_DOMAIN: ".example.com",
+        SESSION_SAME_SITE: "None",
+      },
+    );
+
+    expect(login.headers.get("set-cookie")).toContain("Domain=.example.com");
+    expect(login.headers.get("set-cookie")).toContain("SameSite=None");
+    expect(login.headers.get("set-cookie")).toContain("Secure");
   });
 
   it("signs up the first user as admin and creates an authenticated session", async () => {
@@ -196,6 +282,34 @@ describe("Hono API", () => {
     expect(list.products).toEqual([
       expect.objectContaining({ managementNumber: "TP-2001", status: "returned" }),
     ]);
+  });
+
+  it("stores uploaded product images in R2 and serves them by image key", async () => {
+    const { app } = setup();
+    const { bucket, objects } = setupR2Bucket();
+    const cookie = await createUserSession(app, { email: "owner@example.com" });
+
+    const upload = await app.request(
+      "/api/images",
+      {
+        method: "POST",
+        body: JSON.stringify({ dataUrl: "data:image/png;base64,aGVsbG8=" }),
+        headers: { "content-type": "application/json", cookie },
+      },
+      {
+        PRODUCT_IMAGES: bucket,
+      },
+    );
+
+    expect(upload.status).toBe(201);
+    const body = await json<{ imageKey: string }>(upload);
+    expect(body.imageKey).toMatch(/^products\/.+\.png$/);
+    expect(objects.has(body.imageKey)).toBe(true);
+
+    const image = await app.request(`/api/images/${body.imageKey}`, {}, { PRODUCT_IMAGES: bucket });
+    expect(image.status).toBe(200);
+    expect(image.headers.get("content-type")).toBe("image/png");
+    await expect(image.text()).resolves.toBe("hello");
   });
 
   it("rejects duplicate product management numbers with a Japanese message", async () => {

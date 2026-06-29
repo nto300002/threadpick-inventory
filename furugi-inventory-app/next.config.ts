@@ -1,5 +1,18 @@
 import type { NextConfig } from "next";
 
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+const apiImagePattern = apiBaseUrl
+  ? (() => {
+      const url = new URL(apiBaseUrl);
+      return {
+        hostname: url.hostname,
+        pathname: "/api/images/**",
+        port: url.port,
+        protocol: url.protocol.replace(":", "") as "http" | "https",
+      };
+    })()
+  : null;
+
 const nextConfig: NextConfig = {
   async headers() {
     return [
@@ -21,6 +34,9 @@ const nextConfig: NextConfig = {
         ],
       },
     ];
+  },
+  images: {
+    remotePatterns: apiImagePattern ? [apiImagePattern] : [],
   },
 };
 

@@ -4,11 +4,15 @@
   "main": "src/worker.ts",
   "compatibility_date": "2026-06-21",
   "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "FRONTEND_ORIGIN": "https://threadpick-inventory.vercel.app",
+    "SESSION_SAME_SITE": "None"
+  },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "threadpick-inventory",
-      "database_id": "local-dev-placeholder",
+      "database_id": "420ee01f-ae0e-40b6-ada9-2a78b7fa0015",
       "migrations_dir": "drizzle"
     }
   ],
